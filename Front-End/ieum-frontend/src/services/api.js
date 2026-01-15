@@ -173,16 +173,17 @@ export const searchAPI = {
     },
 
     // 🏠 부동산 검색 (기존과 동일 - AI 없음)
-    realestate: async (regionCode, dealYmd = "202506", maxPrice = null) => {
+    realestate: async (regionCode, dealYmd = "202506", maxPrice = null, userProfile = null) => {
         return await apiCallWithRetry(async () => {
             try {
-                console.log('🚀 Realestate 요청:', { regionCode, dealYmd });
+                console.log(' Realestate 요청:', { regionCode, dealYmd });
                 const response = await apiClient.post('/api/search/realestate', {
                     region_code: regionCode,
                     deal_ymd: dealYmd,
-                    max_price: maxPrice
+                    max_price: maxPrice,
+                    user_profile: userProfile
                 });
-                console.log('📥 Realestate 응답 성공');
+                console.log(' Realestate 응답 성공');
                 return response.data;
             } catch (error) {
                 handleApiError(error, '부동산 검색');

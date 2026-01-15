@@ -1,81 +1,98 @@
-// src/App.jsx - 정책만 AI 적용 완전 수정 버전
+// src/App.jsx
 import React, { useState } from "react";
 import MainPage from "./components/MainPage";
+import RecommendationPage from "./components/RecommendationPage"; // 새로 만든 페이지
 import ResultsPage from "./components/ResultsPage";
 import LoadingPage from "./components/LoadingPage";
 import { searchAPI } from "./services/api";
 
-const parsePrice = (text) => {
-  if (
-    !text ||
-    !["이하", "까지", "안으로", "아래"].some((keyword) =>
-      text.includes(keyword)
-    )
-  ) {
-    return null;
-  }
+// --- [가짜 데이터] 백엔드 완성 전까지 사용할 추천 결과 ---
+const MOCK_RECOMMENDATIONS = [
+  {
+    regionName: "강원도 강릉시",
+    regionCode: "51150",
+    houseCount: 24,
+    jobCount: 15,
+    score: 95,
+  },
+  {
+    regionName: "강원도 원주시",
+    regionCode: "51130", // 원주 코드
+    houseCount: 45,
+    jobCount: 32,
+    score: 88,
+  },
+  {
+    regionName: "충청남도 청양군",
+    regionCode: "44790",
+    houseCount: 8,
+    jobCount: 5,
+    score: 82,
+  },
+  {
+    regionName: "전북특별자치도 김제시",
+    regionCode: "52210",
+    houseCount: 12,
+    jobCount: 10,
+    score: 79,
+  },
+  {
+    regionName: "강원도 영월군",
+    regionCode: "51750",
+    houseCount: 6,
+    jobCount: 3,
+    score: 75,
+  },
+];
 
-  const eokMatch = text.match(/(\d+)억/);
-  if (eokMatch) {
-    return parseInt(eokMatch[1]) * 10000;
-  }
-
-  const manMatch = text.match(/(\d+)만/);
-  if (manMatch) {
-    return parseInt(manMatch[1]);
-  }
-
-  return null;
-};
-
-const analyzePromptForJobFilters = (prompt) => {
-  const text = prompt.toLowerCase().replace(/\s/g, "");
+// --- [유틸리티] 직무 텍스트에서 필터 코드 추출 ---
+const getJobFiltersFromProfile = (jobString) => {
+  if (!jobString) return {};
+  const text = jobString.toLowerCase().replace(/\s/g, "");
   const filters = {};
 
   const jobFields = {
-    사업관리: "R600001",
-    "경영.회계.사무": "R600002",
-    "금융.보험": "R600003",
-    "교육.자연.사회과학": "R600004",
-    "법률.경찰.소방.교도.국방": "R600005",
-    "보건.의료": "R600006",
-    "사회복지.종교": "R600007",
-    "문화.예술.디자인.방송": "R600008",
-    "운전.운송": "R600009",
-    영업판매: "R600010",
-    "경비.청소": "R600011",
-    "이용.숙박.여행.오락.스포츠": "R600012",
-    음식서비스: "R600013",
-    건설: "R600014",
-    기계: "R600015",
-    재료: "R600016",
-    화학: "R600017",
-    "섬유.의복": "R600018",
-    "전기.전자": "R600019",
+    IT: "R600020",
+    개발: "R600020",
     정보통신: "R600020",
-    식품가공: "R600021",
-    "인쇄.목재.가구.공예": "R600022",
-    "환경.에너지.안전": "R600023",
-    농림어업: "R600024",
+    경영: "R600002",
+    사무: "R600002",
+    회계: "R600002",
+    의료: "R600006",
+    간호: "R600006",
+    병원: "R600006",
+    건설: "R600014",
+    현장: "R600014",
+    생산: "R600015",
+    기계: "R600015",
+    농업: "R600024",
+    농사: "R600024",
+    귀농: "R600024",
     연구: "R600025",
   };
 
-  for (const [fieldName, code] of Object.entries(jobFields)) {
-    if (text.includes(fieldName.toLowerCase().replace(/\./g, ""))) {
+  for (const [key, code] of Object.entries(jobFields)) {
+    if (text.includes(key)) {
       filters["ncsCdLst"] = code;
-      console.log(`💼 직무 분야 "${fieldName}" 발견 -> 필터 코드: ${code}`);
-      return filters;
+      console.log(`💼 직무 필터 적용: ${key} -> ${code}`);
+      break;
     }
   }
-
   return filters;
 };
 
 function App() {
+  // --- 상태 관리 ---
+  // 단계: 'main'(입력) -> 'analyzing'(분석중) -> 'recommendation'(추천결과) -> 'loading_details'(상세로딩) -> 'results'(최종결과)
   const [currentPage, setCurrentPage] = useState("main");
+
+  const [userProfile, setUserProfile] = useState(null); // 사용자 입력 정보 저장
+  const [recommendations, setRecommendations] = useState([]); // 추천 지역 리스트
+
   const [searchData, setSearchData] = useState(null);
   const [error, setError] = useState(null);
 
+  // 로딩바 상태
   const [loadingStatus, setLoadingStatus] = useState({
     summary: { loading: false, completed: false, error: null },
     jobs: { loading: false, completed: false, error: null },
@@ -83,6 +100,7 @@ function App() {
     policies: { loading: false, completed: false, error: null },
   });
 
+  // 최종 결과 데이터
   const [resultData, setResultData] = useState({
     summary: null,
     jobs: null,
@@ -90,310 +108,185 @@ function App() {
     policies: null,
   });
 
-  // 지역 분석 함수
-  const analyzePromptForRegion = (prompt) => {
-    const regionMapping = {
-      정선군: "51770",
-      정선: "51770",
-      영월군: "51750",
-      영월: "51750",
-      청양군: "44790",
-      청양: "44790",
-      강릉시: "51150",
-      강릉: "51150",
-      김제시: "52210",
-      김제: "52210",
-    };
+  // --- [Step 1] 메인 페이지: 프로필 입력 완료 핸들러 ---
+  const handleProfileSubmit = (profileData) => {
+    console.log("👤 프로필 입력 완료:", profileData);
+    setUserProfile(profileData);
 
-    const text = prompt.toLowerCase().replace(/\s/g, "");
-    const sortedKeys = Object.keys(regionMapping).sort(
-      (a, b) => b.length - a.length
+    // 1. 분석 로딩 화면으로 전환
+    setCurrentPage("analyzing");
+
+    // 2. (가짜) 서버 분석 시뮬레이션 (2.5초 후 추천 페이지로 이동)
+    setTimeout(() => {
+      setRecommendations(MOCK_RECOMMENDATIONS);
+      setCurrentPage("recommendation");
+    }, 2500);
+  };
+
+  // --- [Step 2] 추천 페이지: 지역 선택 핸들러 ---
+  const handleSelectRegion = async (regionCode) => {
+    // 선택한 지역 이름 찾기 (목록에서)
+    const selectedRegion = recommendations.find(
+      (r) => r.regionCode === regionCode
     );
+    const regionName = selectedRegion
+      ? selectedRegion.regionName
+      : "선택한 지역";
 
-    for (const regionName of sortedKeys) {
-      if (text.includes(regionName.toLowerCase())) {
-        console.log(
-          `🎯 지역 매칭 성공: "${regionName}" -> ${regionMapping[regionName]}`
-        );
-        return regionMapping[regionName];
-      }
-    }
+    console.log(`🎯 지역 선택됨: ${regionName} (${regionCode})`);
+    console.log("🚀 상세 정보 로딩 시작...");
 
-    console.log("🎯 기본 지역 적용: 청양군 (44790)");
-    return "44790";
+    // 1. 상세 로딩 화면으로 전환
+    setCurrentPage("loading_details");
+    setError(null);
+
+    const newSearchData = {
+      prompt: regionName, // 결과 페이지 표시용
+      regionCode: regionCode,
+    };
+    setSearchData(newSearchData);
+
+    // 2. 직무 필터 준비
+    const jobFilters = getJobFiltersFromProfile(userProfile.job);
+
+    // 3. 실제 API 호출 시작
+    await loadAllAPIData(regionCode, jobFilters, userProfile, regionName);
   };
 
-  // 입력 검증 함수
-  const validateInput = (prompt) => {
-    const cleanPrompt = prompt.trim();
-
-    if (!cleanPrompt) {
-      throw new Error("검색할 내용을 입력해주세요.");
-    }
-
-    if (cleanPrompt.length < 2) {
-      throw new Error("검색어는 최소 2글자 이상 입력해주세요.");
-    }
-
-    if (cleanPrompt.length > 500) {
-      throw new Error("검색어는 최대 500자까지 입력 가능합니다.");
-    }
-
-    const sanitizedPrompt = cleanPrompt
-      .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, "")
-      .replace(/javascript:/gi, "")
-      .replace(/on\w+\s*=/gi, "");
-
-    if (sanitizedPrompt !== cleanPrompt) {
-      console.warn("⚠️ 입력에서 위험한 스크립트가 제거되었습니다.");
-    }
-
-    return sanitizedPrompt;
-  };
-
+  // --- [Step 3] 실제 데이터 로딩 (기존 로직 재사용) ---
   const updateApiStatus = (apiName, status) => {
-    setLoadingStatus((prev) => ({
-      ...prev,
-      [apiName]: status,
-    }));
+    setLoadingStatus((prev) => ({ ...prev, [apiName]: status }));
   };
 
   const updateApiResult = (apiName, data) => {
-    setResultData((prev) => ({
-      ...prev,
-      [apiName]: data,
-    }));
+    setResultData((prev) => ({ ...prev, [apiName]: data }));
   };
 
-  // 검색 실행 함수
-  const handleSearch = async (prompt, userProfile) => {
-    try {
-      const validatedPrompt = validateInput(prompt);
-      const regionCode = analyzePromptForRegion(validatedPrompt);
-      const jobFilters = analyzePromptForJobFilters(validatedPrompt);
-
-      console.log(`🚀 검색 시작: "${validatedPrompt}" -> 지역: ${regionCode}`);
-
-      setCurrentPage("loading");
-      setError(null);
-
-      const newSearchData = {
-        prompt: validatedPrompt,
-        regionCode,
-      };
-      setSearchData(newSearchData);
-
-      // 초기 상태 설정
-      const initialLoadingStatus = {
-        summary: { loading: false, completed: false, error: null },
-        jobs: { loading: false, completed: false, error: null },
-        realestate: { loading: false, completed: false, error: null },
-        policies: { loading: false, completed: false, error: null },
-      };
-      setLoadingStatus(initialLoadingStatus);
-      setResultData({
-        summary: null,
-        jobs: null,
-        realestate: null,
-        policies: null,
-      });
-
-      console.log("[DEBUG] 사용자 프로필 수신:", userProfile);
-
-      // 🚀 개별 추적이 가능한 병렬 API 호출
-      await loadAllAPIDataWithIndividualTracking(
-        validatedPrompt,
-        regionCode,
-        jobFilters,
-        userProfile
-      );
-    } catch (err) {
-      console.error("❌ 검색 실행 오류:", err);
-      setError(err.message);
-      setCurrentPage("main");
-    }
-  };
-
-  // 🚀 개별 추적 가능한 병렬 API 호출
-  const loadAllAPIDataWithIndividualTracking = async (
-    prompt,
+  const loadAllAPIData = async (
     regionCode,
     jobFilters,
-    userProfile
+    profile,
+    regionName
   ) => {
-    console.log(" [DEBUG] API 호출 시작");
-    console.log(" [DEBUG] 원본 사용자 입력:", prompt);
-    console.log(" [DEBUG] 지역 코드:", regionCode);
-    console.log(" [DEBUG] 직무 필터:", jobFilters);
-    console.log(" [DEBUG] 프로필 데이터:", userProfile);
-
+    // 초기화
     const tempResults = {
       summary: null,
       jobs: null,
       realestate: null,
       policies: null,
     };
+    const apiNames = ["summary", "jobs", "realestate", "policies"];
 
+    // 상태 초기화
+    apiNames.forEach((name) =>
+      updateApiStatus(name, { loading: false, completed: false, error: null })
+    );
+    setResultData(tempResults);
+
+    // 개별 API 호출 정의
     const apiCalls = [
       {
         name: "summary",
-        promise: handleIndividualAPI(
-          "summary",
-          () => {
-            console.log(" [DEBUG] Summary API 호출");
-            return searchAPI.comprehensive(prompt, regionCode);
-          },
-          tempResults
-        ),
+        fn: () => {
+          console.log(" [DEBUG] Summary API 호출");
+          // AI에게 "OOO 지역에 대해 알려줘" 라고 요청
+          return searchAPI.comprehensive(regionName, regionCode);
+        },
       },
       {
         name: "jobs",
-        promise: handleIndividualAPI(
-          "jobs",
-          () => {
-            console.log(" [DEBUG] Jobs API 호출 ");
-            return searchAPI.jobs(regionCode, jobFilters);
-          },
-          tempResults
-        ),
+        fn: () => {
+          console.log(" [DEBUG] Jobs API 호출");
+          return searchAPI.jobs(regionCode, jobFilters);
+        },
       },
       {
         name: "realestate",
-        promise: handleIndividualAPI(
-          "realestate",
-          () => {
-            const parsedPrice = parsePrice(prompt);
-            console.log(" [DEBUG] Realestate API 호출");
-            return searchAPI.realestate(regionCode, "202506", parsedPrice);
-          },
-          tempResults
-        ),
+        fn: () => {
+          console.log(" [DEBUG] Realestate API 호출 (프로필 포함)");
+          // ✅ 여기서 userProfile을 넘겨주므로 필터링이 작동합니다!
+          // 예산 문자열(예: "2억")은 백엔드에서 파싱하므로 그대로 넘겨도 됨 (maxPrice는 null로)
+          return searchAPI.realestate(regionCode, "202506", null, profile);
+        },
       },
       {
         name: "policies",
-        promise: handleIndividualAPI(
-          "policies",
-          () => {
-            console.log("🤖 [DEBUG] Policies API 호출 (AI 모드):", {
-              regionCode,
-              userQuery: prompt,
-              userProfile,
-            });
-            // ⭐ 정책만 AI 적용 - userQuery 전달
-            return searchAPI.policies(regionCode, prompt, null, userProfile);
-          },
-          tempResults
-        ),
+        fn: () => {
+          console.log("🤖 [DEBUG] Policies API 호출");
+          // 정책 검색도 프로필 기반 AI 분석 요청
+          return searchAPI.policies(regionCode, regionName, null, profile);
+        },
       },
     ];
 
-    //  모든 API를 병렬로 시작
-    apiCalls.forEach(({ name }) => {
+    // 병렬 실행 및 개별 상태 업데이트
+    const promises = apiCalls.map(async ({ name, fn }) => {
       updateApiStatus(name, { loading: true, completed: false, error: null });
+      try {
+        const result = await fn();
+        updateApiResult(name, result);
+        updateApiStatus(name, { loading: false, completed: true, error: null });
+        return result;
+      } catch (err) {
+        console.error(`❌ ${name} 실패:`, err);
+        updateApiStatus(name, {
+          loading: false,
+          completed: false,
+          error: err.message,
+        });
+        return null;
+      }
     });
 
-    //  모든 API 완료 대기
-    const results = await Promise.allSettled(
-      apiCalls.map((api) => api.promise)
-    );
+    await Promise.allSettled(promises);
 
-    //  성공한 API 개수 확인 (tempResults 기준)
-    const successfulResults = Object.values(tempResults).filter(
-      (data) => data !== null
-    );
-    const hasAnySuccess = successfulResults.length > 0;
-
-    console.log(` API 결과 요약: 성공 ${successfulResults.length}개`);
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-
-    if (hasAnySuccess) {
-      console.log("✅ 결과 페이지로 이동");
+    // 로딩 완료 후 결과 페이지로 이동 (1초 지연)
+    setTimeout(() => {
       setCurrentPage("results");
-    } else {
-      console.log(" 모든 API 실패");
-      setError("모든 데이터를 가져오는데 실패했습니다.");
-      setCurrentPage("main");
-    }
+    }, 1000);
   };
 
-  // 🎯 개별 API 처리 함수
-  const handleIndividualAPI = async (apiName, apiCall, tempResults) => {
-    try {
-      console.log(`🚀 ${apiName} API 시작`);
-
-      // 🎯 API 호출 실행
-      const result = await apiCall();
-
-      // 🎯 성공 시 즉시 상태 업데이트
-      updateApiStatus(apiName, {
-        loading: false,
-        completed: true,
-        error: null,
-      });
-      updateApiResult(apiName, result);
-
-      // 🎯 임시 결과에도 저장
-      tempResults[apiName] = result;
-
-      console.log(`✅ ${apiName} API 성공`);
-
-      // 🤖 정책 API 성공 시 AI 결과 확인
-      if (apiName === "policies" && result?.ai_analysis) {
-        console.log("🤖 🎉 정책 AI 분석 결과 발견!");
-      }
-
-      return result;
-    } catch (error) {
-      console.error(`❌ ${apiName} API 실패:`, error);
-
-      // 🎯 실패 시 즉시 상태 업데이트
-      const errorMessage = error.message || `${apiName} API 호출 실패`;
-      updateApiStatus(apiName, {
-        loading: false,
-        completed: false,
-        error: errorMessage,
-      });
-      updateApiResult(apiName, null);
-
-      // 🎯 임시 결과는 null 유지
-      tempResults[apiName] = null;
-
-      throw error;
-    }
-  };
-
-  // 메인 페이지로 돌아가기
+  // 메인으로 돌아가기
   const handleBackToMain = () => {
     setCurrentPage("main");
     setSearchData(null);
-    setError(null);
-    setLoadingStatus({
-      summary: { loading: false, completed: false, error: null },
-      jobs: { loading: false, completed: false, error: null },
-      realestate: { loading: false, completed: false, error: null },
-      policies: { loading: false, completed: false, error: null },
-    });
-    setResultData({
-      summary: null,
-      jobs: null,
-      realestate: null,
-      policies: null,
-    });
+    setUserProfile(null);
+    setRecommendations([]);
   };
 
+  // --- 렌더링 ---
   return (
     <div className="App">
-      {currentPage === "main" && (
-        <MainPage onSubmit={handleSearch} error={error} />
+      {/* 1. 메인 페이지 (프로필 입력) */}
+      {currentPage === "main" && <MainPage onSubmit={handleProfileSubmit} />}
+
+      {/* 2. 분석 중 로딩 화면 */}
+      {currentPage === "analyzing" && (
+        <LoadingPage
+          searchPrompt="전국 소멸 위험 지역 데이터 분석 중..."
+          loadingStatus={{}} // 빈 상태 (단순 로딩 애니메이션)
+          customMessage={`${userProfile?.name}님에게 딱 맞는 지역을 찾고 있어요!`}
+        />
       )}
 
-      {currentPage === "loading" && (
+      {/* 3. 추천 결과 페이지 (TOP 5 선택) */}
+      {currentPage === "recommendation" && (
+        <RecommendationPage
+          userName={userProfile?.name}
+          recommendations={recommendations}
+          onSelectRegion={handleSelectRegion}
+        />
+      )}
+
+      {/* 4. 상세 정보 로딩 화면 */}
+      {currentPage === "loading_details" && (
         <LoadingPage
-          searchPrompt={searchData?.prompt}
+          searchPrompt={`${searchData?.prompt} 상세 정보 조회 중`}
           loadingStatus={loadingStatus}
         />
       )}
 
+      {/* 5. 최종 결과 페이지 */}
       {currentPage === "results" && searchData && (
         <ResultsPage
           searchData={searchData}
