@@ -117,10 +117,13 @@ async def search_jobs(request: JobSearchRequest):
 async def search_realestate(request: RealestateSearchRequest):
     """부동산 검색 - 기존 방식 (AI 없음)"""
     try:
+        print(f"📨 [DEBUG] API 수신 데이터 전체: {request.dict()}")
         print(f"🏠 [DEBUG] Realestate API 호출: {request.region_code}")
 
         if request.user_profile:
-            print(f"👤 [DEBUG] 사용자 프로필 수신: {request.user_profile.name}, {request.user_profile.age}세, {request.user_profile.job}")
+            print(f"👤 [DEBUG] 프로필 존재함: {request.user_profile}")
+        else:
+            print(f"👤 [DEBUG] 프로필 없음 (None) - 프론트엔드 전송 확인 필요")
         
         result = await handler.search_realestate_only(
             region_code=request.region_code,

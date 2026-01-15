@@ -1,4 +1,4 @@
-# realestate_server.py — 부동산 실거래가 MCP 서버
+# realestate_server.py — 아파트 전월세 전용 MCP 서버
 import os
 import ssl
 from typing import Any, Dict, Optional, Tuple, Iterable
@@ -11,18 +11,16 @@ load_dotenv()
 
 mcp = FastMCP("realestate-mcp")
 
-# 국토교통부 부동산 실거래가 API
-BASE_URL = (os.getenv("MOLIT_BASE_URL") or "https://apis.data.go.kr/1613000/RTMSDataSvcAptTrade").rstrip("/")
+# 공공데이터포털 국토교통부 아파트 전월세 자료 API
+BASE_URL = "https://apis.data.go.kr/1613000/RTMSDataSvcAptRent"
 API_KEY = (os.getenv("MOLIT_API_KEY") or "").strip()
 
 def _client_candidates() -> Iterable[Tuple[str, httpx.Client]]:
-    """
-    TLS/SSL 환경에 따라 순차적으로 시도할 httpx.Client 후보들.
-    """
+    """TLS/SSL 호환성을 위한 클라이언트 후보 생성"""
     # 1) 기본값
     yield "default", httpx.Client(http2=False, timeout=20, trust_env=True)
 
-    # 2) TLS 1.2 이상 + 낮은 보안 레벨
+    # 2) TLS 1.2 + 낮은 보안 레벨 (공공기관 구형 서버 호환용)
     try:
         tls = ssl.create_default_context()
         tls.minimum_version = ssl.TLSVersion.TLSv1_2
@@ -34,14 +32,12 @@ def _client_candidates() -> Iterable[Tuple[str, httpx.Client]]:
     except Exception:
         pass
 
-    # 3) 최후 수단: 인증서 검증 비활성화
+    # 3) 최후 수단 (인증서 검증 무시)
     yield "insecure", httpx.Client(verify=False, http2=False, timeout=20, trust_env=True)
 
 
 def _try_get(url: str, params: Dict[str, Any]):
-    """
-    위의 후보 클라이언트들을 순서대로 시도. 성공하면 (mode, response) 반환.
-    """
+    """가능한 클라이언트로 순차적 요청 시도"""
     last_err: Optional[Exception] = None
     for mode, client in _client_candidates():
         try:
@@ -56,10 +52,9 @@ def _try_get(url: str, params: Dict[str, Any]):
     raise RuntimeError("No HTTP client candidates available")
 
 
-def call_molit_api(
-    endpoint: str = "getRTMSDataSvcAptTrade",
-    lawdcd: str = "",  # 법정동코드 (LAWD_CD)
-    deal_ymd: str = "",  # 계약년월 (DEAL_YMD)
+def call_apt_rent_api(
+    lawdcd: str,
+    deal_ymd: str,
     page_no: int = 1,
     num_rows: int = 10,
     filters: Optional[Dict[str, Any]] = None,
@@ -68,10 +63,11 @@ def call_molit_api(
         return {
             "status": "error",
             "message": "MOLIT_API_KEY is missing in .env",
-            "request_url": f"{BASE_URL}/{endpoint}",
         }
 
-    url = f"{BASE_URL}/{endpoint}" if endpoint else BASE_URL
+    # 아파트 전월세 조회 오퍼레이션
+    url = f"{BASE_URL}/getRTMSDataSvcAptRent"
+    
     params: Dict[str, Any] = {
         "serviceKey": API_KEY,
         "pageNo": page_no,
@@ -87,21 +83,18 @@ def call_molit_api(
         req_url = str(resp.request.url)
         status_code = resp.status_code
         resp.raise_for_status()
+        
         try:
             return {
                 "status": "ok",
-                "ssl_mode": mode,
-                "request_url": req_url,
-                "status_code": status_code,
                 "data": resp.json(),
+                "note": "Apartment Rent Data"
             }
         except Exception:
             return {
                 "status": "ok",
-                "ssl_mode": mode,
-                "request_url": req_url,
-                "status_code": status_code,
                 "text": resp.text,
+                "note": "Apartment Rent Data (Text Format)"
             }
     except Exception as e:
         return {
@@ -120,60 +113,14 @@ def getApartmentTrades(
     filters: Optional[Dict[str, Any]] = None,
 ):
     """
-    아파트 실거래가 조회
+    [아파트 전월세 조회]
+    오케스트레이터와의 호환성을 위해 함수 이름은 getApartmentTrades로 유지하지만,
+    실제로는 '아파트 전월세' 데이터를 조회합니다.
+    
     - lawdcd: 법정동코드 5자리 (예: 11110)
     - deal_ymd: 계약년월 YYYYMM (예: 202506)
-    - pageNo, numOfRows: 페이지/행 수
-    - filters: 추가 필터 파라미터
     """
-    return call_molit_api(
-        endpoint="getRTMSDataSvcAptTrade",
-        lawdcd=lawdcd,
-        deal_ymd=deal_ymd,
-        page_no=pageNo,
-        num_rows=numOfRows,
-        filters=filters
-    )
-
-
-@mcp.tool()
-def getOfficeTrades(
-    lawdcd: str,
-    deal_ymd: str,
-    pageNo: int = 1,
-    numOfRows: int = 10,
-    filters: Optional[Dict[str, Any]] = None,
-):
-    """
-    오피스텔 실거래가 조회
-    - lawdcd: 법정동코드 5자리
-    - deal_ymd: 계약년월 YYYYMM
-    """
-    return call_molit_api(
-        endpoint="OpenAPI_ToolInstallPackage/service/rest/RTMSOBJSvc/getRTMSDataSvcOffiTrade",
-        lawdcd=lawdcd,
-        deal_ymd=deal_ymd,
-        page_no=pageNo,
-        num_rows=numOfRows,
-        filters=filters
-    )
-
-
-@mcp.tool()
-def getHouseTrades(
-    lawdcd: str,
-    deal_ymd: str,
-    pageNo: int = 1,
-    numOfRows: int = 10,
-    filters: Optional[Dict[str, Any]] = None,
-):
-    """
-    단독/다가구 실거래가 조회
-    - lawdcd: 법정동코드 5자리
-    - deal_ymd: 계약년월 YYYYMM
-    """
-    return call_molit_api(
-        endpoint="OpenAPI_ToolInstallPackage/service/rest/RTMSOBJSvc/getRTMSDataSvcSHRent",
+    return call_apt_rent_api(
         lawdcd=lawdcd,
         deal_ymd=deal_ymd,
         page_no=pageNo,
@@ -185,13 +132,13 @@ def getHouseTrades(
 @mcp.tool()
 def ping():
     """헬스체크"""
-    return {"status": "ok", "message": "realestate server pong"}
+    return {"status": "ok", "message": "Realestate (APT RENT ONLY) Server Pong"}
 
 
 def main():
     try:
         names = [t.name for t in mcp._tools]
-        print("[REALESTATE SERVER] tools:", names, flush=True)
+        print("[REALESTATE SERVER - APT RENT] tools:", names, flush=True)
     except Exception:
         pass
     mcp.run()

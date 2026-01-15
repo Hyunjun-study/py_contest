@@ -6,6 +6,8 @@ from datetime import datetime
 from .enhanced_orchestrator import EnhancedOrchestrator
 from .final_chatbot import PerfectChatbot
 
+import re
+
 class WebAPIHandler:
     def __init__(self):
         self.orchestrator = EnhancedOrchestrator()
@@ -424,51 +426,173 @@ class WebAPIHandler:
             "by_deadline": dict(sorted(deadlines.items()))
         }
     
-    async def search_realestate_only(self, region_code: str, deal_ymd: str = "202506", max_price: Optional[int] = None, user_profile: Any = None) -> Dict[str, Any]:
-        """부동산 페이지용 - 실거래가 전문"""
+    def _parse_korean_money_to_int(self, value_str: str) -> int:
+        """
+        '2억 5000', '5000만원', '50만원' 등의 문자열을 
+        부동산 API 기준 단위인 '만원' 단위 정수로 변환합니다.
+        """
+        # 1. 입력값 검증 (None, 빈 문자열, "미입력" 등)
+        if not value_str or str(value_str).strip() in ["", "미입력", "제한없음", "null", "undefined"]:
+            print(f"💰 [DEBUG] 금액 파싱 건너뜀 (입력값 없음): '{value_str}'")
+            return 9999999999
+
         try:
+            # 2. 공백 및 콤마 제거
+            text = str(value_str).replace(" ", "").replace(",", "").strip()
+            print(f"💰 [DEBUG] 금액 파싱 시도: 원본='{value_str}' -> 정리된값='{text}'")
+
+            # 3. '억' 단위 처리
+            eok = 0
+            match_eok = re.search(r'(\d+)억', text)
+            if match_eok:
+                eok = int(match_eok.group(1))
+            
+            # 4. '만' 단위 처리
+            man = 0
+            # "2억5천" -> "5천", "50만원" -> "50만원"
+            rest_part = text.split('억')[-1] if '억' in text else text
+            
+            match_man = re.search(r'(\d+)(?:천|만)?', rest_part)
+            if match_man:
+                num_part = int(match_man.group(1))
+                if "천" in rest_part and "만" not in rest_part:
+                    man = num_part * 1000
+                else:
+                    man = num_part
+
+            # 5. 숫자만 있는 경우 (예: "5000") -> 만원 단위로 간주
+            if eok == 0 and man == 0 and text.isdigit():
+                man = int(text)
+
+            # 6. 최종 계산 (단위: 만원)
+            result = (eok * 10000) + man
+            
+            print(f"💰 [DEBUG] 금액 파싱 성공: {result}만원")
+            return result
+            
+        except Exception as e:
+            print(f"⚠️ 금액 파싱 중 에러 발생('{value_str}'): {e}")
+            return 9999999999
+
+    async def search_realestate_only(self, region_code: str, deal_ymd: str = "202506", max_price: Optional[int] = None, user_profile: Any = None) -> Dict[str, Any]:
+        """부동산 페이지용 - 아파트 전월세 실거래가 조회"""
+        try:
+            print(f"🏠 [DEBUG] Realestate API 호출: {region_code} (전월세)")
+            
+            # user_profile 데이터 확인용 로그
+            if user_profile:
+                print(f"👤 [DEBUG] 프로필 수신: 예산='{user_profile.budget}', 월세='{user_profile.rent_budget}'")
+            else:
+                print("👤 [DEBUG] 프로필 정보가 없습니다 (None)")
+
+            # API 호출
             apt_result = self.orchestrator.call_realestate_tool(
                 'getApartmentTrades',
                 {
                     'lawdcd': region_code,
                     'deal_ymd': deal_ymd,
                     'pageNo': 1,
-                    'numOfRows': 30
+                    'numOfRows': 50
                 }
             )
             
             properties = []
             if apt_result["status"] == "success":
-                apt_text = apt_result["result"].get("text", "")
-                properties = self.chatbot.parse_apartment_xml(apt_text)
+                server_response = apt_result.get("result", {})
+                xml_text = server_response.get("text", "")
+                raw_data = server_response.get("data", {})
 
-                # 가격 필터링 로직
-                if max_price and max_price > 0:
-                    properties = [
-                        prop for prop in properties
-                        if int(prop.get("dealAmount", "0").replace(",", "")) <= max_price
-                    ]
+                if xml_text:
+                    properties = self.chatbot.parse_apartment_xml(xml_text)
+                else:
+                    items = []
+                    if isinstance(raw_data, dict):
+                        body = raw_data.get('response', {}).get('body', {})
+                        items = body.get('items', {}).get('item', [])
+                    if isinstance(items, dict):
+                        items = [items]
+                    properties = items or []
+
+                print(f"🏠 [DEBUG] 조회된 전체 매물 수: {len(properties)}")
+
+                # ---------------------------------------------------------
+                # 🚀 전월세 예산 필터링
+                # ---------------------------------------------------------
+                filtered_properties = []
+                
+                user_deposit_limit = 9999999999
+                user_rent_limit = 9999999999
+                
+                if user_profile:
+                    if user_profile.budget:
+                        user_deposit_limit = self._parse_korean_money_to_int(user_profile.budget)
+                    if user_profile.rent_budget:
+                        user_rent_limit = self._parse_korean_money_to_int(user_profile.rent_budget)
+
+                print(f"💰 [DEBUG] 최종 필터 기준: 보증금 {user_deposit_limit}만원, 월세 {user_rent_limit}만원")
+
+                for prop in properties:
+                    try:
+                        # 데이터 파싱 ('deposit', 'monthlyRent')
+                        deposit_raw = (prop.get('deposit') or prop.get('보증금액') or prop.get('depositAmount') or '0')
+                        rent_raw = (prop.get('monthlyRent') or prop.get('월세금액') or prop.get('monthlyAmount') or '0')
+
+                        deposit_str = str(deposit_raw).replace(',', '').strip()
+                        rent_str = str(rent_raw).replace(',', '').strip()
+                        
+                        prop_deposit = int(deposit_str) if deposit_str.isdigit() else 0
+                        prop_rent = int(rent_str) if rent_str.isdigit() else 0
+
+                        # 가격 정보가 없는(0원) 데이터는 제외할지 여부 결정 (일단 제외하지 않음)
+                        # if prop_deposit == 0 and prop_rent == 0: continue
+
+                        # 필터링 조건
+                        if prop_deposit <= user_deposit_limit and prop_rent <= user_rent_limit:
+                            if prop_rent == 0:
+                                prop['dealAmount'] = f"전세 {int(deposit_str):,}만원"
+                            elif prop_deposit == 0:
+                                prop['dealAmount'] = f"월세 {int(rent_str):,}만원"
+                            else:
+                                prop['dealAmount'] = f"보증금 {int(deposit_str):,} / 월세 {int(rent_str):,}만원"
+                                
+                            filtered_properties.append(prop)
+                            
+                    except Exception as e:
+                        continue
+                
+                properties = filtered_properties
+                print(f"🏠 [DEBUG] 필터링 후 매물 수: {len(properties)}")
             
-            # 🗺️ 지역명으로 좌표 변환 (간단히 매핑 추가)
+            # --- (이하 나머지 코드는 동일) ---
             REGION_COORDS = {
-                "51150": (37.7519, 128.8761),  # 강릉
-                "52210": (35.8032, 126.8800),  # 김제
-                "44790": (36.4595, 126.8028),  # 청양
-                "51770": (37.3802, 128.6631),  # 정선
-                "51750": (37.1833, 128.4619),  # 영월
+                "51150": (37.7519, 128.8761),
+                "52210": (35.8032, 126.8800),
+                "44790": (36.4595, 126.8028),
+                "51770": (37.3802, 128.6631),
+                "51750": (37.1833, 128.4619),
             }
-            lat, lng = REGION_COORDS.get(region_code, (37.5665, 126.9780))  # 기본값 서울
+            lat, lng = REGION_COORDS.get(region_code, (37.5665, 126.9780))
             
+            price_analysis = {
+                "trend": "데이터 분석 중", 
+                "price_range": "전세/월세 혼합", 
+                "sample_count": len(properties)
+            }
+
             return {
                 "success": True,
                 "properties": properties,
-                "price_analysis": self._analyze_price_trends(properties),
+                "price_analysis": price_analysis,
                 "deal_period": deal_ymd,
                 "region_info": {
                     "code": region_code,
                     "name": self.chatbot.get_region_name(region_code),
                     "lat": lat,
                     "lng": lng
+                },
+                "filter_info": {
+                    "deposit_limit": user_profile.budget if user_profile else "제한없음",
+                    "rent_limit": user_profile.rent_budget if user_profile else "제한없음"
                 }
             }
         except Exception as e:
