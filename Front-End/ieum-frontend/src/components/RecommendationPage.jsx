@@ -3,11 +3,24 @@ import React from "react";
 import "./RecommendationPage.css"; // (CSS 파일도 필요하면 만드세요, 없으면 인라인 스타일 사용)
 import BackgroundPattern from "../assets/background.svg?react";
 
-function RecommendationPage({ userName, recommendations, onSelectRegion }) {
+function RecommendationPage({
+  userName,
+  recommendations,
+  onSelectRegion,
+  onBackToMain,
+}) {
   return (
     <div className="recommendation-container">
+      <button
+        className="back-fab fixed-top-left"
+        onClick={onBackToMain}
+        title="처음 화면으로 돌아가기"
+      >
+        ← 조건 다시 입력
+      </button>
+
       <div className="recommendation-header fade-in">
-        <h1>🎉 {userName}님에게 딱 맞는 지역 TOP 5</h1>
+        <h1>🎉 {userName}님에게 딱 맞는 지역 TOP 6</h1>
         <p>
           빅데이터 분석 결과, 거주 가능성과 일자리 매칭률이 가장 높은 곳입니다.
         </p>
@@ -29,11 +42,19 @@ function RecommendationPage({ userName, recommendations, onSelectRegion }) {
             <div className="stats-preview">
               <div className="stat-item">
                 <span className="label">🏠 예산 내 매물</span>
-                <span className="value highlight">{item.houseCount}건</span>
+                <span className="value">{item.houseCount}건</span>
               </div>
+              <div className="stat-divider-vertical"></div>{" "}
+              {/* 세로 구분선 (선택사항) */}
               <div className="stat-item">
                 <span className="label">💼 관련 일자리</span>
                 <span className="value">{item.jobCount}개</span>
+              </div>
+              <div className="stat-divider-vertical"></div>{" "}
+              {/* 세로 구분선 (선택사항) */}
+              <div className="stat-item">
+                <span className="label">📜 관련 정책</span>
+                <span className="value">{item.policyCount}개</span>
               </div>
             </div>
 

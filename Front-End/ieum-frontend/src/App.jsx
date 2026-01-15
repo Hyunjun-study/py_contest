@@ -1,25 +1,162 @@
 // src/App.jsx
 import React, { useState } from "react";
 import MainPage from "./components/MainPage";
-import RecommendationPage from "./components/RecommendationPage"; // 새로 만든 페이지
+import RecommendationPage from "./components/RecommendationPage";
 import ResultsPage from "./components/ResultsPage";
 import LoadingPage from "./components/LoadingPage";
 import { searchAPI } from "./services/api";
 
-// --- [가짜 데이터] 백엔드 완성 전까지 사용할 추천 결과 ---
-const MOCK_RECOMMENDATIONS = [
+// --- [가짜 데이터] 6개 지역의 상세 정보를 미리 정의 (나중에 백엔드에서 받아올 구조) ---
+const MOCK_FULL_DATA = {
+  51150: {
+    // 강릉시
+    summary: {
+      text: "강릉시는 관광과 해양 관련 일자리가 풍부하며, 청년 주거 지원 정책이 활발합니다.",
+    },
+    jobs: {
+      totalCount: 15,
+      jobs: [
+        {
+          title: "[강릉] 관광 데이터 분석가",
+          company: "오션뷰테크",
+          salary: "연봉 3,200만원",
+        },
+        { title: "웹 개발자", company: "강릉소프트", salary: "연봉 3,000만원" },
+      ],
+    },
+    realestate: {
+      price_analysis: { sample_count: 24 },
+      properties: [
+        { dealAmount: "전세 1억 8,000", aptNm: "교동택지 아파트" },
+        { dealAmount: "보증금 2,000 / 월세 45", aptNm: "포남동 원룸" },
+      ],
+    },
+    policies: {
+      totalCount: 5,
+      policies: [
+        { servNm: "강릉시 청년 월세 지원" },
+        { servNm: "청년 창업 보증 대출" },
+      ],
+    },
+  },
+  51130: {
+    // 원주시
+    summary: {
+      text: "원주시는 공공기관 이전으로 안정적인 일자리가 많고 교통이 편리합니다.",
+    },
+    jobs: {
+      totalCount: 32,
+      jobs: [
+        {
+          title: "공공데이터 인턴",
+          company: "건강보험공단",
+          salary: "월 210만원",
+        },
+      ],
+    },
+    realestate: {
+      price_analysis: { sample_count: 45 },
+      properties: [{ dealAmount: "전세 1억 5,000", aptNm: "무실동 아파트" }],
+    },
+    policies: { totalCount: 8, policies: [{ servNm: "원주 정착 지원금" }] },
+  },
+  44790: {
+    // 청양군
+    summary: {
+      text: "청양군은 귀농/귀촌 지원이 강력하며 주거 비용이 매우 저렴합니다.",
+    },
+    jobs: {
+      totalCount: 5,
+      jobs: [
+        {
+          title: "스마트팜 관리자",
+          company: "청양농협",
+          salary: "연봉 3,500만원",
+        },
+      ],
+    },
+    realestate: {
+      price_analysis: { sample_count: 8 },
+      properties: [{ dealAmount: "전세 8,000", aptNm: "읍내리 빌라" }],
+    },
+    policies: {
+      totalCount: 12,
+      policies: [{ servNm: "귀농 정착금 지원" }, { servNm: "청년 쉐어하우스" }],
+    },
+  },
+  52210: {
+    // 김제시
+    summary: {
+      text: "김제시는 스마트팜 혁신 밸리가 있어 농업 관련 창업 기회가 많습니다.",
+    },
+    jobs: {
+      totalCount: 10,
+      jobs: [
+        { title: "농업 연구원", company: "김제센터", salary: "연봉 3,400만원" },
+      ],
+    },
+    realestate: {
+      price_analysis: { sample_count: 12 },
+      properties: [{ dealAmount: "월세 30", aptNm: "신풍동 주택" }],
+    },
+    policies: { totalCount: 6, policies: [{ servNm: "청년 농부 지원" }] },
+  },
+  51750: {
+    // 영월군
+    summary: {
+      text: "영월군은 문화 관광 콘텐츠 기획자와 크리에이터를 위한 지원이 좋습니다.",
+    },
+    jobs: {
+      totalCount: 3,
+      jobs: [
+        {
+          title: "박물관 큐레이터",
+          company: "영월문화재단",
+          salary: "연봉 2,800만원",
+        },
+      ],
+    },
+    realestate: {
+      price_analysis: { sample_count: 6 },
+      properties: [{ dealAmount: "전세 6,000", aptNm: "영월읍 아파트" }],
+    },
+    policies: { totalCount: 4, policies: [{ servNm: "문화 예술인 지원" }] },
+  },
+  44800: {
+    // 예산군
+    summary: {
+      text: "예산군은 백종원 거리 등 요식업 창업과 관광 산업이 성장 중입니다.",
+    },
+    jobs: {
+      totalCount: 7,
+      jobs: [
+        { title: "매장 관리직", company: "예산시장", salary: "월 250만원" },
+      ],
+    },
+    realestate: {
+      price_analysis: { sample_count: 18 },
+      properties: [{ dealAmount: "전세 1억", aptNm: "산성리 아파트" }],
+    },
+    policies: { totalCount: 7, policies: [{ servNm: "청년 상인 대출" }] },
+  },
+};
+
+// 추천 리스트 데이터 (요약본)
+const MOCK_RECOMMENDATIONS_LIST = [
   {
     regionName: "강원도 강릉시",
     regionCode: "51150",
     houseCount: 24,
     jobCount: 15,
+    policyCount: 12,
     score: 95,
   },
   {
     regionName: "강원도 원주시",
-    regionCode: "51130", // 원주 코드
+    regionCode: "51130",
     houseCount: 45,
     jobCount: 32,
+    policyCount: 12,
     score: 88,
   },
   {
@@ -27,6 +164,7 @@ const MOCK_RECOMMENDATIONS = [
     regionCode: "44790",
     houseCount: 8,
     jobCount: 5,
+    policyCount: 12,
     score: 82,
   },
   {
@@ -34,6 +172,7 @@ const MOCK_RECOMMENDATIONS = [
     regionCode: "52210",
     houseCount: 12,
     jobCount: 10,
+    policyCount: 12,
     score: 79,
   },
   {
@@ -41,91 +180,61 @@ const MOCK_RECOMMENDATIONS = [
     regionCode: "51750",
     houseCount: 6,
     jobCount: 3,
+    policyCount: 12,
     score: 75,
+  },
+  {
+    regionName: "충청남도 예산군",
+    regionCode: "44800",
+    houseCount: 18,
+    jobCount: 7,
+    policyCount: 12,
+    score: 72,
   },
 ];
 
-// --- [유틸리티] 직무 텍스트에서 필터 코드 추출 ---
-const getJobFiltersFromProfile = (jobString) => {
-  if (!jobString) return {};
-  const text = jobString.toLowerCase().replace(/\s/g, "");
-  const filters = {};
-
-  const jobFields = {
-    IT: "R600020",
-    개발: "R600020",
-    정보통신: "R600020",
-    경영: "R600002",
-    사무: "R600002",
-    회계: "R600002",
-    의료: "R600006",
-    간호: "R600006",
-    병원: "R600006",
-    건설: "R600014",
-    현장: "R600014",
-    생산: "R600015",
-    기계: "R600015",
-    농업: "R600024",
-    농사: "R600024",
-    귀농: "R600024",
-    연구: "R600025",
-  };
-
-  for (const [key, code] of Object.entries(jobFields)) {
-    if (text.includes(key)) {
-      filters["ncsCdLst"] = code;
-      console.log(`💼 직무 필터 적용: ${key} -> ${code}`);
-      break;
-    }
-  }
-  return filters;
-};
-
 function App() {
   // --- 상태 관리 ---
-  // 단계: 'main'(입력) -> 'analyzing'(분석중) -> 'recommendation'(추천결과) -> 'loading_details'(상세로딩) -> 'results'(최종결과)
+  // 단계: 'main'(입력) -> 'analyzing'(로딩:여기서 다 가져옴) -> 'recommendation'(결과6개) -> 'results'(상세:즉시이동)
   const [currentPage, setCurrentPage] = useState("main");
 
-  const [userProfile, setUserProfile] = useState(null); // 사용자 입력 정보 저장
-  const [recommendations, setRecommendations] = useState([]); // 추천 지역 리스트
+  const [userProfile, setUserProfile] = useState(null);
+  const [recommendations, setRecommendations] = useState([]);
+
+  // 모든 지역의 상세 데이터를 미리 저장해두는 곳
+  const [allRegionsData, setAllRegionsData] = useState({});
 
   const [searchData, setSearchData] = useState(null);
-  const [error, setError] = useState(null);
+  const [resultData, setResultData] = useState(null);
 
-  // 로딩바 상태
-  const [loadingStatus, setLoadingStatus] = useState({
-    summary: { loading: false, completed: false, error: null },
-    jobs: { loading: false, completed: false, error: null },
-    realestate: { loading: false, completed: false, error: null },
-    policies: { loading: false, completed: false, error: null },
-  });
-
-  // 최종 결과 데이터
-  const [resultData, setResultData] = useState({
-    summary: null,
-    jobs: null,
-    realestate: null,
-    policies: null,
-  });
-
-  // --- [Step 1] 메인 페이지: 프로필 입력 완료 핸들러 ---
+  // --- [Step 1] 메인 페이지: 프로필 입력 완료 ---
   const handleProfileSubmit = (profileData) => {
     console.log("👤 프로필 입력 완료:", profileData);
     setUserProfile(profileData);
 
-    // 1. 분석 로딩 화면으로 전환
+    // 1. 분석 로딩 화면으로 전환 (여기서 백엔드 연결)
     setCurrentPage("analyzing");
 
-    // 2. (가짜) 서버 분석 시뮬레이션 (2.5초 후 추천 페이지로 이동)
+    // ============================================================
+    // 🚀 [핵심] 여기서 백엔드 API를 호출하여 6개 지역 데이터를 싹 다 가져와야 함
+    // 지금은 가짜 데이터(MOCK)로 시뮬레이션하지만, 나중에 여기서 API 호출
+    // ============================================================
+
     setTimeout(() => {
-      setRecommendations(MOCK_RECOMMENDATIONS);
+      // 1. 추천 리스트 생성 (서버 응답 가정)
+      setRecommendations(MOCK_RECOMMENDATIONS_LIST);
+
+      // 2. 각 지역별 상세 데이터 미리 저장 (서버 응답 가정)
+      setAllRegionsData(MOCK_FULL_DATA);
+
+      // 3. 분석 완료 -> 추천 페이지로 이동
       setCurrentPage("recommendation");
-    }, 2500);
+    }, 3000); // 3초 분석 시뮬레이션
   };
 
-  // --- [Step 2] 추천 페이지: 지역 선택 핸들러 ---
-  const handleSelectRegion = async (regionCode) => {
-    // 선택한 지역 이름 찾기 (목록에서)
+  // --- [Step 2] 추천 페이지: 지역 선택 (로딩 없이 즉시 이동!) ---
+  const handleSelectRegion = (regionCode) => {
+    // 1. 선택한 지역 이름 찾기
     const selectedRegion = recommendations.find(
       (r) => r.regionCode === regionCode
     );
@@ -134,164 +243,71 @@ function App() {
       : "선택한 지역";
 
     console.log(`🎯 지역 선택됨: ${regionName} (${regionCode})`);
-    console.log("🚀 상세 정보 로딩 시작...");
+    console.log("🚀 저장된 데이터로 즉시 상세 페이지 이동!");
 
-    // 1. 상세 로딩 화면으로 전환
-    setCurrentPage("loading_details");
-    setError(null);
+    // 2. 미리 받아둔 데이터(allRegionsData)에서 꺼내기
+    const preloadedData = allRegionsData[regionCode];
 
-    const newSearchData = {
-      prompt: regionName, // 결과 페이지 표시용
-      regionCode: regionCode,
-    };
-    setSearchData(newSearchData);
+    if (preloadedData) {
+      // 데이터 셋팅
+      setSearchData({ prompt: regionName, regionCode: regionCode });
+      setResultData(preloadedData);
 
-    // 2. 직무 필터 준비
-    const jobFilters = getJobFiltersFromProfile(userProfile.job);
-
-    // 3. 실제 API 호출 시작
-    await loadAllAPIData(regionCode, jobFilters, userProfile, regionName);
-  };
-
-  // --- [Step 3] 실제 데이터 로딩 (기존 로직 재사용) ---
-  const updateApiStatus = (apiName, status) => {
-    setLoadingStatus((prev) => ({ ...prev, [apiName]: status }));
-  };
-
-  const updateApiResult = (apiName, data) => {
-    setResultData((prev) => ({ ...prev, [apiName]: data }));
-  };
-
-  const loadAllAPIData = async (
-    regionCode,
-    jobFilters,
-    profile,
-    regionName
-  ) => {
-    // 초기화
-    const tempResults = {
-      summary: null,
-      jobs: null,
-      realestate: null,
-      policies: null,
-    };
-    const apiNames = ["summary", "jobs", "realestate", "policies"];
-
-    // 상태 초기화
-    apiNames.forEach((name) =>
-      updateApiStatus(name, { loading: false, completed: false, error: null })
-    );
-    setResultData(tempResults);
-
-    // 개별 API 호출 정의
-    const apiCalls = [
-      {
-        name: "summary",
-        fn: () => {
-          console.log(" [DEBUG] Summary API 호출");
-          // AI에게 "OOO 지역에 대해 알려줘" 라고 요청
-          return searchAPI.comprehensive(regionName, regionCode);
-        },
-      },
-      {
-        name: "jobs",
-        fn: () => {
-          console.log(" [DEBUG] Jobs API 호출");
-          return searchAPI.jobs(regionCode, jobFilters);
-        },
-      },
-      {
-        name: "realestate",
-        fn: () => {
-          console.log(" [DEBUG] Realestate API 호출 (프로필 포함)");
-          // ✅ 여기서 userProfile을 넘겨주므로 필터링이 작동합니다!
-          // 예산 문자열(예: "2억")은 백엔드에서 파싱하므로 그대로 넘겨도 됨 (maxPrice는 null로)
-          return searchAPI.realestate(regionCode, "202506", null, profile);
-        },
-      },
-      {
-        name: "policies",
-        fn: () => {
-          console.log("🤖 [DEBUG] Policies API 호출");
-          // 정책 검색도 프로필 기반 AI 분석 요청
-          return searchAPI.policies(regionCode, regionName, null, profile);
-        },
-      },
-    ];
-
-    // 병렬 실행 및 개별 상태 업데이트
-    const promises = apiCalls.map(async ({ name, fn }) => {
-      updateApiStatus(name, { loading: true, completed: false, error: null });
-      try {
-        const result = await fn();
-        updateApiResult(name, result);
-        updateApiStatus(name, { loading: false, completed: true, error: null });
-        return result;
-      } catch (err) {
-        console.error(`❌ ${name} 실패:`, err);
-        updateApiStatus(name, {
-          loading: false,
-          completed: false,
-          error: err.message,
-        });
-        return null;
-      }
-    });
-
-    await Promise.allSettled(promises);
-
-    // 로딩 완료 후 결과 페이지로 이동 (1초 지연)
-    setTimeout(() => {
+      // 3. 로딩 화면 없이 바로 결과 페이지로!
       setCurrentPage("results");
-    }, 1000);
+    } else {
+      alert("데이터를 불러오는 중 오류가 발생했습니다.");
+    }
   };
 
-  // 메인으로 돌아가기
+  const handleBackToRecommendations = () => {
+    console.log("🔙 추천 목록으로 돌아갑니다.");
+    setCurrentPage("recommendation");
+    // userProfile과 recommendations는 유지해야 함!
+    // searchData만 초기화 (선택 취소)
+    setSearchData(null);
+  };
+
   const handleBackToMain = () => {
     setCurrentPage("main");
     setSearchData(null);
     setUserProfile(null);
     setRecommendations([]);
+    setAllRegionsData({});
   };
 
   // --- 렌더링 ---
   return (
     <div className="App">
-      {/* 1. 메인 페이지 (프로필 입력) */}
+      {/* 1. 입력 화면 */}
       {currentPage === "main" && <MainPage onSubmit={handleProfileSubmit} />}
 
-      {/* 2. 분석 중 로딩 화면 */}
+      {/* 2. 분석 로딩 화면 (백엔드 통신 구간) */}
       {currentPage === "analyzing" && (
         <LoadingPage
-          searchPrompt="전국 소멸 위험 지역 데이터 분석 중..."
-          loadingStatus={{}} // 빈 상태 (단순 로딩 애니메이션)
-          customMessage={`${userProfile?.name}님에게 딱 맞는 지역을 찾고 있어요!`}
+          searchPrompt="전국 소멸 위험 지역 데이터 정밀 분석 중..."
+          loadingStatus={{}}
+          customMessage={`${userProfile?.name}님의 조건(예산, 직무)에 맞는 최적의 지역 6곳을 선별하고 있습니다.`}
         />
       )}
 
-      {/* 3. 추천 결과 페이지 (TOP 5 선택) */}
+      {/* 3. 6개 지역 추천 화면 */}
       {currentPage === "recommendation" && (
         <RecommendationPage
           userName={userProfile?.name}
           recommendations={recommendations}
           onSelectRegion={handleSelectRegion}
+          onBackToMain={handleBackToMain}
         />
       )}
 
-      {/* 4. 상세 정보 로딩 화면 */}
-      {currentPage === "loading_details" && (
-        <LoadingPage
-          searchPrompt={`${searchData?.prompt} 상세 정보 조회 중`}
-          loadingStatus={loadingStatus}
-        />
-      )}
-
-      {/* 5. 최종 결과 페이지 */}
-      {currentPage === "results" && searchData && (
+      {/* 4. 최종 상세 결과 화면 (로딩 없이 즉시 뜸) */}
+      {currentPage === "results" && searchData && resultData && (
         <ResultsPage
           searchData={searchData}
           resultData={resultData}
           onBackToMain={handleBackToMain}
+          onBackToRecommendations={handleBackToRecommendations}
         />
       )}
     </div>
